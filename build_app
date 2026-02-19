@@ -1,0 +1,11 @@
+#!/bin/bash
+echo "📦 Έλεγχος για νέα πακέτα (Pub Get)..."
+~/development/flutter/bin/flutter pub get
+
+echo "🚀 Ξεκινάει το Build για Web..."
+~/development/flutter/bin/flutter build web --web-renderer html
+
+echo "📂 Αντιγραφή Assets..."
+cp -r assets/data build/web/assets/
+
+echo "✅ Έτοιμο! Κάνε Refresh στον Browser."

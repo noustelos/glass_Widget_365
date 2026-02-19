@@ -108,12 +108,14 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
         if (normalizedQuery == official || nicknames.contains(normalizedQuery)) {
           if (saintName.contains(official)) {
             score += 1000;
+            if (official == "ΝΙΚΟΛΑΟΣ" && monthDay == "12-06") score += 100000;
+            if (official == "ΝΙΚΟΛΑΟΣ" && saintName.contains("ΜΥΡΩΝ")) score += 50000;
+            if (saintName.startsWith("ΑΓΙΟΣ $official") || saintName.startsWith("ΑΓΙΑ $official")) score += 3000;
             if (official == "ΜΑΡΙΑ") {
-              if (monthDay == "08-15") score += 2000;
-              if (monthDay == "11-21") score += 1500;
-              if (monthDay == "02-02") score += 500;
+              if (monthDay == "08-15") score += 20000;
+              if (monthDay == "11-21") score += 15000;
+              if (monthDay == "02-02") score += 5000;
             }
-            if (official == "ΝΙΚΟΛΑΟΣ" && monthDay == "12-06") score += 2000;
           }
         }
       });
@@ -126,6 +128,35 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     }
     scoredResults.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
     setState(() { selectedResult = null; searchResultsList = scoredResults.map((e) => e['data']).toList(); });
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2024),
+      lastDate: DateTime(2026, 12, 31),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: ColorScheme.dark(primary: primaryGold, onPrimary: Colors.black, surface: const Color(0xFF1A1A1A)),
+          ),
+          child: Center(
+            child: SizedBox(
+              width: 320,
+              child: Transform.scale(scale: 0.9, child: child!),
+            ),
+          ),
+        );
+      },
+    );
+    if (picked != null) {
+      final String dateStr = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+      final result = allYearData.firstWhere((item) => item['date'] == dateStr, orElse: () => null);
+      if (result != null) {
+        setState(() { selectedResult = Map.from(result); _searchController.clear(); searchResultsList = []; });
+      }
+    }
   }
 
   Future<void> loadDailyData() async {
@@ -168,28 +199,25 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     setState(() {
       _searchController.clear(); searchResultsList = [];
       selectedResult = Map.from(extraQuotesData[random.nextInt(extraQuotesData.length)]);
-      selectedResult!['type'] = 'quote';
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    const double w = 330, h = 280, mockupW = 400, topPos = 70;
+    const double w = 330, h = 280;
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Colors.transparent,
       body: Center(
-        child: Container(
-          width: mockupW, height: 750,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(45), border: Border.all(color: Colors.white12, width: 2)),
+        child: SizedBox(
+          width: w, height: 600,
           child: Stack(
+            clipBehavior: Clip.none,
             children: [
-              Container(decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF101820), Color(0xFF262322)]))),
-              AnimatedPositioned(duration: const Duration(milliseconds: 500), top: topPos, left: (mockupW - w) / 2,
+              AnimatedPositioned(duration: const Duration(milliseconds: 500), top: 20, left: 0,
                 child: AnimatedOpacity(duration: const Duration(milliseconds: 500), opacity: isMacroDrawerOpen ? 0.0 : 1.0, child: IgnorePointer(ignoring: isMacroDrawerOpen, child: _buildMainCard(w, h)))),
-              Positioned(top: topPos + h + 15, left: (mockupW - w) / 2,
+              Positioned(top: 20 + h + 10, left: 0,
                 child: AnimatedOpacity(duration: const Duration(milliseconds: 300), opacity: (isMicroDrawerOpen && !isMacroDrawerOpen) ? 1.0 : 0.0, child: IgnorePointer(ignoring: !isMicroDrawerOpen || isMacroDrawerOpen, child: _buildMicroDrawer(w)))),
-              _buildMacroDrawerIntegrated(w, mockupW, topPos),
+              _buildMacroDrawerIntegrated(w, 20),
             ],
           ),
         ),
@@ -227,12 +255,13 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     ]));
   }
 
-  Widget _buildMacroDrawerIntegrated(double w, double mockupW, double top) {
+  Widget _buildMacroDrawerIntegrated(double w, double topPos) {
     return Stack(children: [
-      if (isMacroDrawerOpen) Positioned.fill(child: GestureDetector(onTap: () => setState(() => isMacroDrawerOpen = false), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), child: Container(color: Colors.black.withOpacity(0.4))))),
-      AnimatedPositioned(duration: const Duration(milliseconds: 600), curve: Curves.easeOutQuart, top: top, left: (mockupW - w) / 2,
+      if (isMacroDrawerOpen) 
+        Positioned.fill(child: GestureDetector(onTap: () => setState(() => isMacroDrawerOpen = false), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), child: Container(color: Colors.transparent)))),
+      AnimatedPositioned(duration: const Duration(milliseconds: 600), curve: Curves.easeOutQuart, top: topPos, left: 0,
         child: IgnorePointer(ignoring: !isMacroDrawerOpen, child: AnimatedOpacity(duration: const Duration(milliseconds: 400), opacity: isMacroDrawerOpen ? 1.0 : 0.0,
-          child: GlassWidget(width: w, height: isMacroDrawerOpen ? 550 : 280, radius: 32, child: Column(children: [
+          child: GlassWidget(width: w, height: 550, radius: 32, child: Column(children: [
             Text(formattedDate, style: const TextStyle(color: Colors.white54, fontSize: 12)),
             const SizedBox(height: 5),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -243,7 +272,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
             ]),
             const SizedBox(height: 10),
             Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              IconButton(icon: const Icon(Icons.calendar_month, color: Colors.white, size: 22), onPressed: () {}),
+              IconButton(icon: const Icon(Icons.calendar_month, color: Colors.white, size: 22), onPressed: () => _selectDate(context)),
               IconButton(icon: const Icon(Icons.close, color: Colors.white70, size: 18), onPressed: () => setState(() => isMacroDrawerOpen = false)),
               TextButton.icon(onPressed: _getNewRandomQuote, icon: Icon(Icons.auto_awesome, color: primaryGold, size: 18), label: const Text("Νέο", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold))),
             ]),
@@ -252,6 +281,39 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
                 decoration: InputDecoration(hintText: "Αναζήτηση...", hintStyle: const TextStyle(color: Colors.white38), prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 18), filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
             const Divider(color: Colors.white24, height: 1),
             Expanded(child: (selectedResult == null && searchResultsList.isEmpty) ? const Center(child: Text("Αναζητήστε όνομα...", style: TextStyle(color: Colors.white24, fontSize: 13))) : (selectedResult != null) ? _buildSelectionView() : _buildSearchResultsList()),
+            
+            // --- CUSTOM GOLD LINE & LIVE SITE LINK ---
+            Column(
+              children: [
+                // H2::AFTER GRADIENT LINE REPLICA
+                Container(
+                  width: 80,
+                  height: 2,
+                  margin: const EdgeInsets.only(top: 15, bottom: 5),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        const Color(0xFFC5A059).withOpacity(0.8), // Το χρυσό σου χρώμα
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _launchURL("https://365orthodoxy.com"),
+                  child: Text(
+                    "365orthodoxy.com",
+                    style: TextStyle(
+                      color: const Color(0xFFC5A059).withOpacity(0.7),
+                      fontSize: 12,
+                      letterSpacing: 1.1,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 5),
+              ],
+            ),
           ]))))),
     ]);
   }
@@ -264,7 +326,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
         return ListTile(dense: true, title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SelectableText(item['display_date'], style: TextStyle(color: primaryGold.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.bold)),
           Text(item['saint'], style: const TextStyle(color: Colors.white, fontSize: 16)),
-        ]), onTap: () => setState(() { selectedResult = Map.from(item); selectedResult!['type'] = 'saint'; }));
+        ]), onTap: () => setState(() { selectedResult = Map.from(item); }));
       });
   }
 
@@ -273,14 +335,14 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       SelectableText(selectedResult!['display_date'] ?? "", textAlign: TextAlign.center, style: TextStyle(color: primaryGold, fontSize: 12, fontWeight: FontWeight.bold)),
       Text(selectedResult!['saint'] ?? "", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19)),
       Padding(padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 5), child: Text(showModernSearch ? (selectedResult!['translation'] ?? "") : (selectedResult!['quote'] ?? ""), textAlign: TextAlign.center, style: TextStyle(color: lightGold, fontStyle: FontStyle.italic, fontSize: 20, height: 1.25))),
-      _buildCustomSwitch(showModernSearch, (v) => setState(() => showModernSearch = v), withGlobe: true),
+      _buildCustomSwitch(showModernSearch, (v) => setState(() => showModernSearch = v), withGlobe: true, withBorder: true),
     ]));
   }
 
-  Widget _buildCustomSwitch(bool value, Function(bool) onChanged, {bool withGlobe = false}) {
+  Widget _buildCustomSwitch(bool value, Function(bool) onChanged, {bool withGlobe = false, bool withBorder = false}) {
     return Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
       if (withGlobe) const Padding(padding: const EdgeInsets.only(right: 12), child: Icon(Icons.public, color: Colors.white54, size: 20)),
-      GestureDetector(onTap: () => onChanged(!value), child: Container(width: 52, height: 28, padding: const EdgeInsets.all(3), decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.white30, width: 1.5), color: value ? Colors.white.withOpacity(0.15) : Colors.black38),
+      GestureDetector(onTap: () => onChanged(!value), child: Container(width: 52, height: 28, padding: const EdgeInsets.all(3), decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: withBorder ? primaryGold.withOpacity(0.6) : Colors.white30, width: 1.5), color: value ? Colors.white.withOpacity(0.15) : Colors.black38),
         child: AnimatedAlign(duration: const Duration(milliseconds: 250), curve: Curves.easeInOut, alignment: value ? Alignment.centerRight : Alignment.centerLeft,
           child: Container(width: 20, height: 20, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 4, offset: const Offset(0, 2))]))))),
     ]);
