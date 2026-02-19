@@ -20,7 +20,6 @@ class OrthodoxyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      // Προσθήκη transparent στα χρώματα του Theme για να μην επηρεάζει το iframe
       theme: ThemeData(
         primarySwatch: Colors.blue, 
         fontFamily: 'GFSDidot',
@@ -84,6 +83,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     return str.toUpperCase();
   }
 
+  // --- ΣΥΝΔΥΑΣΜΕΝΗ ΑΝΑΖΗΤΗΣΗ ΜΕ HARD OVERRIDE ΚΑΙ ΛΟΓΙΚΗ ΓΙΑ ΜΑΡΙΑ ---
   void _advancedSearch(String query) {
     if (query.isEmpty) {
       setState(() { searchResultsList = []; selectedResult = null; });
@@ -92,52 +92,99 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     String normalizedQuery = _normalizeGreek(query).trim();
 
     final Map<String, List<String>> nicknameMap = {
-      "ΓΕΩΡΓΙΟΣ": ["ΓΙΩΡΓΟΣ", "ΓΙΩΡΓΗΣ"], "ΙΩΑΝΝΗΣ": ["ΓΙΑΝΝΗΣ"],
-      "ΚΩΝΣΤΑΝΤΙΝΟΣ": ["ΚΩΣΤΑΣ", "ΚΩΣΤΗΣ", "ΝΤΙΝΟΣ"], "ΔΗΜΗΤΡΙΟΣ": ["ΔΗΜΗΤΡΗΣ"],
-      "ΝΙΚΟΛΑΟΣ": ["ΝΙΚΟΣ", "ΝΙΚΟΛΑΣ"], "ΠΑΝΑΓΙΩΤΗΣ": ["ΠΑΝΟΣ"],
-      "ΒΑΣΙΛΕΙΟΣ": ["ΒΑΣΙΛΗΣ"], "ΕΜΜΑΝΟΥΗΛ": ["ΜΑΝΩΛΗΣ", "ΜΑΝΟΣ"],
-      "ΜΙΧΑΗΛ": ["ΜΙΧΑΛΗΣ"], "ΑΘΑΝΑΣΙΟΣ": ["ΘΑΝΑΣΗΣ"],
-      "ΑΛΕΞΑΝΔΡΟΣ": ["ΑΛΕΚΟΣ"], "ΣΠΥΡΙΔΩΝ": ["ΣΠΥΡΟΣ"],
-      "ΕΥΑΓΓΕΛΟΣ": ["ΒΑΓΓΕΛΗΣ"], "ΜΑΡΙΑ": ["ΜΑΙΡΗ", "ΜΑΡΙΩ", "ΜΑΡΙΤΣΑ", "ΜΑΡΟΥΛΑ"],
-      "ΕΛΕΝΗ": ["ΛΕΝΑ", "ΈΛΕΝΑ", "ΛΕΝΙΩ"], "ΑΙΚΑΤΕΡΙΝΗ": ["ΚΑΤΕΡΙΝΑ", "ΚΑΙΤΗ"],
-      "ΒΑΣΙΛΙΚΗ": ["ΒΑΣΩ", "ΒΙΚΗ"], "ΚΩΝΣΤΑΝΤΙΝΑ": ["ΝΤΙΝΑ", "ΝΑΝΤΙΑ"]
+      "ΓΕΩΡΓΙΟΣ": ["ΓΙΩΡΓΟΣ", "ΓΙΩΡΓΗΣ"], 
+      "ΙΩΑΝΝΗΣ": ["ΓΙΑΝΝΗΣ"],
+      "ΚΩΝΣΤΑΝΤΙΝΟΣ": ["ΚΩΣΤΑΣ", "ΚΩΣΤΗΣ", "ΝΤΙΝΟΣ"], 
+      "ΔΗΜΗΤΡΙΟΣ": ["ΔΗΜΗΤΡΗΣ"],
+      "ΝΙΚΟΛΑΟΣ": ["ΝΙΚΟΣ", "ΝΙΚΟΛΑΣ"], 
+      "ΠΑΝΑΓΙΩΤΗΣ": ["ΠΑΝΟΣ"],
+      "ΒΑΣΙΛΕΙΟΣ": ["ΒΑΣΙΛΗΣ"], 
+      "ΕΜΜΑΝΟΥΗΛ": ["ΜΑΝΩΛΗΣ", "ΜΑΝΟΣ"],
+      "ΜΙΧΑΗΛ": ["ΜΙΧΑΛΗΣ"], 
+      "ΑΘΑΝΑΣΙΟΣ": ["ΘΑΝΑΣΗΣ"],
+      "ΑΛΕΞΑΝΔΡΟΣ": ["ΑΛΕΚΟΣ"], 
+      "ΣΠΥΡΙΔΩΝ": ["ΣΠΥΡΟΣ"],
+      "ΕΥΑΓΓΕΛΟΣ": ["ΒΑΓΓΕΛΗΣ"], 
+      "ΜΑΡΙΑ": ["ΜΑΙΡΗ", "ΜΑΡΙΩ", "ΜΑΡΙΤΣΑ", "ΜΑΡΟΥΛΑ", "ΠΑΝΑΓΙΑ", "ΔΕΣΠΟΙΝΑ"],
+      "ΕΛΕΝΗ": ["ΛΕΝΑ", "ΈΛΕΝΑ", "ΛΕΝΙΩ"], 
+      "ΑΙΚΑΤΕΡΙΝΗ": ["ΚΑΤΕΡΙΝΑ", "ΚΑΙΤΗ"],
+      "ΒΑΣΙΛΙΚΗ": ["ΒΑΣΩ", "ΒΙΚΗ"], 
+      "ΚΩΝΣΤΑΝΤΙΝΑ": ["ΝΤΙΝΑ", "ΝΑΝΤΙΑ"]
     };
 
     List<Map<String, dynamic>> scoredResults = [];
+    Map<String, dynamic>? stNicholasItem;
+
     for (var item in allYearData) {
       String saintName = _normalizeGreek(item['saint'].toString());
       String dateStr = item['date'].toString(); 
       int score = 0;
-      String monthDay = (dateStr.length >= 10) ? dateStr.substring(5) : "";
+      
+      // Year-independent MM-DD extraction
+      List<String> dateParts = dateStr.split('-');
+      String monthDay = "";
+      if (dateParts.length >= 3) {
+        monthDay = "${dateParts[1]}-${dateParts[2].padLeft(2, '0')}";
+      }
 
+      // Hard Override Storage: Άγιος Νικόλαος Μύρων
+      if (monthDay == "12-06") {
+        stNicholasItem = item;
+      }
+
+      // 1. Priority scoring (από το JSON)
+      int priority = item['priority'] ?? 0;
+      score += priority * 5000;
+
+      // 2. Nickname & Root Matching Logic
       nicknameMap.forEach((official, nicknames) {
-        if (normalizedQuery == official || nicknames.contains(normalizedQuery)) {
-          if (saintName.contains(official)) {
-            score += 1000;
-            // BOOST ΓΙΑ ΑΓΙΟ ΝΙΚΟΛΑΟ ΜΥΡΩΝ
-            if (official == "ΝΙΚΟΛΑΟΣ" && monthDay == "12-06") score += 100000;
-            if (official == "ΝΙΚΟΛΑΟΣ" && saintName.contains("ΜΥΡΩΝ")) score += 50000;
-            if (saintName.startsWith("ΑΓΙΟΣ $official") || saintName.startsWith("ΑΓΙΑ $official")) score += 3000;
-            // BOOST ΓΙΑ ΜΑΡΙΕΣ
+        bool isOfficialMatch = official.startsWith(normalizedQuery);
+        bool isNicknameMatch = nicknames.any((nick) => nick.startsWith(normalizedQuery));
+
+        if (isOfficialMatch || isNicknameMatch) {
+          // Χρήση ρίζας ονόματος για να πιάνει Ονομαστική και Γενική (π.χ. ΝΙΚΟΛΑ)
+          String root = official.length > 4 ? official.substring(0, official.length - 2) : official;
+          
+          if (saintName.contains(root)) {
+            score += 10000;
+
+            // Ειδικά Boosts για ΜΑΡΙΑ (Κύριες εορτές)
             if (official == "ΜΑΡΙΑ") {
-              if (monthDay == "08-15") score += 20000;
-              if (monthDay == "11-21") score += 15000;
-              if (monthDay == "02-02") score += 5000;
+              if (monthDay == "08-15") score += 30000; // Κοίμηση
+              if (monthDay == "11-21") score += 20000; // Εισόδια
+              if (monthDay == "02-02") score += 15000; // Υπαπαντή
+              if (monthDay == "03-25") score += 15000; // Ευαγγελισμός
             }
           }
         }
       });
 
+      // 3. Γενικό matching
       if (saintName.contains(normalizedQuery)) {
-        score += 100;
-        if (saintName.startsWith(normalizedQuery)) score += 200;
+        score += 1000;
+        if (saintName.startsWith(normalizedQuery)) score += 2000;
       }
-      if (score > 10) scoredResults.add({'data': item, 'score': score});
+
+      if (score > 0) scoredResults.add({'data': item, 'score': score});
     }
+
+    // Ταξινόμηση βάσει score
     scoredResults.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
-    setState(() { selectedResult = null; searchResultsList = scoredResults.map((e) => e['data']).toList(); });
+    List<dynamic> finalResults = scoredResults.map((e) => e['data']).toList();
+
+    // --- HARD OVERRIDE ΓΙΑ ΝΙΚΟΛΑΟ 12-06 ---
+    if (normalizedQuery.startsWith("ΝΙΚ") && stNicholasItem != null) {
+      finalResults.removeWhere((element) => element['date'] == stNicholasItem!['date']);
+      finalResults.insert(0, stNicholasItem);
+    }
+
+    setState(() { 
+      selectedResult = null; 
+      searchResultsList = finalResults; 
+    });
   }
 
+  // --- CALENDAR PICKER (YEAR-INDEPENDENT) ---
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -159,8 +206,16 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       },
     );
     if (picked != null) {
-      final String dateStr = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
-      final result = allYearData.firstWhere((item) => item['date'] == dateStr, orElse: () => null);
+      final String pickedMMDD = "${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+      final result = allYearData.firstWhere(
+        (item) {
+          List<String> parts = item['date'].toString().split('-');
+          if (parts.length < 3) return false;
+          String itemMMDD = "${parts[1]}-${parts[2].padLeft(2, '0')}";
+          return itemMMDD == pickedMMDD;
+        }, 
+        orElse: () => null
+      );
       if (result != null) {
         setState(() { selectedResult = Map.from(result); _searchController.clear(); searchResultsList = []; });
       }
@@ -173,9 +228,16 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     try {
       final String response = await rootBundle.loadString('assets/data/${months[now.month - 1]}.json');
       final List<dynamic> data = json.decode(response);
-      final String todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final String todayMMDD = "${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
       setState(() {
-        todayData = data.firstWhere((item) => item['date'] == todayStr, orElse: () => data[now.day - 1]);
+        todayData = data.firstWhere(
+          (item) {
+            List<String> parts = item['date'].toString().split('-');
+            String itemMMDD = "${parts[1]}-${parts[2].padLeft(2, '0')}";
+            return itemMMDD == todayMMDD;
+          }, 
+          orElse: () => data.isNotEmpty ? data.first : null
+        );
         isLoading = false;
       });
     } catch (e) { setState(() => isLoading = false); }
@@ -188,15 +250,19 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       try {
         final String resp = await rootBundle.loadString('assets/data/$month.json');
         tempYear.addAll(json.decode(resp));
-      } catch (e) {}
+      } catch (e) {
+        debugPrint("DEBUG ERROR: Could not load $month.json");
+      }
     }
+    setState(() { allYearData = tempYear; });
     try {
       final extra = await rootBundle.loadString('assets/data/extra_quotes.json');
-      setState(() { allYearData = tempYear; extraQuotesData = json.decode(extra); });
-    } catch (e) { setState(() => allYearData = tempYear); }
+      setState(() { extraQuotesData = json.decode(extra); });
+    } catch (e) {}
   }
 
-  void _launchURL(String url) async {
+  void _launchURL(String? url) async {
+    if (url == null || url.isEmpty) return;
     final Uri uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) await launchUrl(uri);
   }
@@ -214,10 +280,10 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   Widget build(BuildContext context) {
     const double w = 330, h = 280;
     return Scaffold(
-      backgroundColor: Colors.transparent, // Διαφανές Scaffold
+      backgroundColor: Colors.transparent,
       body: Center(
         child: Container(
-          color: Colors.transparent, // Επιπλέον διαφάνεια στο Container
+          color: Colors.transparent, 
           width: w, height: 600,
           child: Stack(
             clipBehavior: Clip.none,
@@ -241,7 +307,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       const SizedBox(height: 5),
       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
         Flexible(child: Text(todayData?['saint'] ?? "", textAlign: TextAlign.center, style: TextStyle(fontSize: 21, color: Colors.white, fontWeight: FontWeight.bold, shadows: laserEngravedShadows))),
-        IconButton(icon: const Icon(Icons.info_outline, color: Colors.white38, size: 16), onPressed: () => _launchURL(todayData?['wiki_url'] ?? "")),
+        IconButton(icon: const Icon(Icons.info_outline, color: Colors.white38, size: 16), onPressed: () => _launchURL(todayData?['wiki_url'])),
       ]),
       Divider(color: primaryGold.withOpacity(0.3), thickness: 0.5, indent: 60, endIndent: 60),
       const Spacer(),
@@ -267,15 +333,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   Widget _buildMacroDrawerIntegrated(double w, double topPos) {
     return Stack(children: [
       if (isMacroDrawerOpen) 
-        Positioned.fill(
-          child: GestureDetector(
-            onTap: () => setState(() => isMacroDrawerOpen = false), 
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), 
-              child: Container(color: Colors.transparent) // Απόλυτη διαφάνεια στο φόντο του Blur
-            )
-          )
-        ),
+        Positioned.fill(child: GestureDetector(onTap: () => setState(() => isMacroDrawerOpen = false), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), child: Container(color: Colors.transparent)))),
       AnimatedPositioned(duration: const Duration(milliseconds: 600), curve: Curves.easeOutQuart, top: topPos, left: 0,
         child: IgnorePointer(ignoring: !isMacroDrawerOpen, child: AnimatedOpacity(duration: const Duration(milliseconds: 400), opacity: isMacroDrawerOpen ? 1.0 : 0.0,
           child: GlassWidget(width: w, height: 550, radius: 32, child: Column(children: [
@@ -293,28 +351,18 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
               IconButton(icon: const Icon(Icons.close, color: Colors.white70, size: 18), onPressed: () => setState(() => isMacroDrawerOpen = false)),
               TextButton.icon(onPressed: _getNewRandomQuote, icon: Icon(Icons.auto_awesome, color: primaryGold, size: 18), label: const Text("Νέο", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold))),
             ]),
-            // Search field με χρυσό περίγραμμα
-            Container(margin: const EdgeInsets.symmetric(vertical: 10), height: 45, 
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(15), 
-                border: Border.all(color: primaryGold.withOpacity(0.8), width: 1.5)
-              ),
+            Container(margin: const EdgeInsets.symmetric(vertical: 10), height: 45, decoration: BoxDecoration(borderRadius: BorderRadius.circular(15), border: Border.all(color: primaryGold.withOpacity(0.8), width: 1.5)),
               child: TextField(controller: _searchController, style: const TextStyle(color: Colors.white, fontSize: 14), onChanged: _advancedSearch,
                 decoration: InputDecoration(hintText: "Αναζήτηση...", hintStyle: const TextStyle(color: Colors.white38), prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 18), filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
             const Divider(color: Colors.white24, height: 1),
             Expanded(child: (selectedResult == null && searchResultsList.isEmpty) ? const Center(child: Text("Αναζητήστε όνομα...", style: TextStyle(color: Colors.white24, fontSize: 13))) : (selectedResult != null) ? _buildSelectionView() : _buildSearchResultsList()),
             
-            // Χρυσή γραμμή και Link όπως το σάιτ
             Column(
               children: [
                 Container(
                   width: 80, height: 2,
                   margin: const EdgeInsets.only(top: 15, bottom: 5),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.transparent, const Color(0xFFC5A059).withOpacity(0.8), Colors.transparent],
-                    ),
-                  ),
+                  decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, const Color(0xFFC5A059).withOpacity(0.8), Colors.transparent])),
                 ),
                 TextButton(
                   onPressed: () => _launchURL("https://365orthodoxy.com"),
@@ -351,12 +399,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   Widget _buildCustomSwitch(bool value, Function(bool) onChanged, {bool withGlobe = false, bool withBorder = false}) {
     return Row(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, children: [
       if (withGlobe) const Padding(padding: const EdgeInsets.only(right: 12), child: Icon(Icons.public, color: Colors.white54, size: 20)),
-      GestureDetector(onTap: () => onChanged(!value), child: Container(width: 52, height: 28, padding: const EdgeInsets.all(3), 
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20), 
-          border: Border.all(color: withBorder ? primaryGold.withOpacity(0.6) : Colors.white30, width: 1.5), 
-          color: value ? Colors.white.withOpacity(0.15) : Colors.black38
-        ),
+      GestureDetector(onTap: () => onChanged(!value), child: Container(width: 52, height: 28, padding: const EdgeInsets.all(3), decoration: BoxDecoration(borderRadius: BorderRadius.circular(20), border: Border.all(color: withBorder ? primaryGold.withOpacity(0.6) : Colors.white30, width: 1.5), color: value ? Colors.white.withOpacity(0.15) : Colors.black38),
         child: AnimatedAlign(duration: const Duration(milliseconds: 250), curve: Curves.easeInOut, alignment: value ? Alignment.centerRight : Alignment.centerLeft,
           child: Container(width: 20, height: 20, decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 4, offset: const Offset(0, 2))]))))),
     ]);
