@@ -83,7 +83,6 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     return str.toUpperCase();
   }
 
-  // --- ΣΥΝΔΥΑΣΜΕΝΗ ΑΝΑΖΗΤΗΣΗ ΜΕ HARD OVERRIDE ΚΑΙ ΛΟΓΙΚΗ ΓΙΑ ΜΑΡΙΑ ---
   void _advancedSearch(String query) {
     if (query.isEmpty) {
       setState(() { searchResultsList = []; selectedResult = null; });
@@ -102,64 +101,41 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       "ΕΜΜΑΝΟΥΗΛ": ["ΜΑΝΩΛΗΣ", "ΜΑΝΟΣ"],
       "ΜΙΧΑΗΛ": ["ΜΙΧΑΛΗΣ"], 
       "ΑΘΑΝΑΣΙΟΣ": ["ΘΑΝΑΣΗΣ"],
-      "ΑΛΕΞΑΝΔΡΟΣ": ["ΑΛΕΚΟΣ"], 
-      "ΣΠΥΡΙΔΩΝ": ["ΣΠΥΡΟΣ"],
-      "ΕΥΑΓΓΕΛΟΣ": ["ΒΑΓΓΕΛΗΣ"], 
       "ΜΑΡΙΑ": ["ΜΑΙΡΗ", "ΜΑΡΙΩ", "ΜΑΡΙΤΣΑ", "ΜΑΡΟΥΛΑ", "ΠΑΝΑΓΙΑ", "ΔΕΣΠΟΙΝΑ"],
       "ΕΛΕΝΗ": ["ΛΕΝΑ", "ΈΛΕΝΑ", "ΛΕΝΙΩ"], 
-      "ΑΙΚΑΤΕΡΙΝΗ": ["ΚΑΤΕΡΙΝΑ", "ΚΑΙΤΗ"],
-      "ΒΑΣΙΛΙΚΗ": ["ΒΑΣΩ", "ΒΙΚΗ"], 
-      "ΚΩΝΣΤΑΝΤΙΝΑ": ["ΝΤΙΝΑ", "ΝΑΝΤΙΑ"]
     };
 
     List<Map<String, dynamic>> scoredResults = [];
-    Map<String, dynamic>? stNicholasItem;
+    dynamic stNicholasItem;
+    dynamic mariaItem;
 
     for (var item in allYearData) {
       String saintName = _normalizeGreek(item['saint'].toString());
       String dateStr = item['date'].toString(); 
       int score = 0;
       
-      // Year-independent MM-DD extraction
-      List<String> dateParts = dateStr.split('-');
       String monthDay = "";
-      if (dateParts.length >= 3) {
-        monthDay = "${dateParts[1]}-${dateParts[2].padLeft(2, '0')}";
+      if (dateStr.length >= 10) {
+        monthDay = dateStr.substring(5, 10);
       }
 
-      // Hard Override Storage: Άγιος Νικόλαος Μύρων
-      if (monthDay == "12-06") {
-        stNicholasItem = item;
-      }
+      if (monthDay == "12-06") stNicholasItem = item;
+      if (monthDay == "08-15") mariaItem = item;
 
-      // 1. Priority scoring (από το JSON)
       int priority = item['priority'] ?? 0;
-      score += priority * 5000;
+      score += priority * 2000;
 
-      // 2. Nickname & Root Matching Logic
       nicknameMap.forEach((official, nicknames) {
-        bool isOfficialMatch = official.startsWith(normalizedQuery);
-        bool isNicknameMatch = nicknames.any((nick) => nick.startsWith(normalizedQuery));
-
-        if (isOfficialMatch || isNicknameMatch) {
-          // Χρήση ρίζας ονόματος για να πιάνει Ονομαστική και Γενική (π.χ. ΝΙΚΟΛΑ)
-          String root = official.length > 4 ? official.substring(0, official.length - 2) : official;
-          
-          if (saintName.contains(root)) {
-            score += 10000;
-
-            // Ειδικά Boosts για ΜΑΡΙΑ (Κύριες εορτές)
-            if (official == "ΜΑΡΙΑ") {
-              if (monthDay == "08-15") score += 30000; // Κοίμηση
-              if (monthDay == "11-21") score += 20000; // Εισόδια
-              if (monthDay == "02-02") score += 15000; // Υπαπαντή
-              if (monthDay == "03-25") score += 15000; // Ευαγγελισμός
-            }
+        bool isMatch = official.startsWith(normalizedQuery) || nicknames.any((nick) => nick.startsWith(normalizedQuery));
+        if (isMatch && saintName.contains(official)) {
+          score += 10000;
+          if (official == "ΜΑΡΙΑ") {
+            if (monthDay == "08-15") score += 50000; 
+            if (monthDay == "11-21") score += 30000; 
           }
         }
       });
 
-      // 3. Γενικό matching
       if (saintName.contains(normalizedQuery)) {
         score += 1000;
         if (saintName.startsWith(normalizedQuery)) score += 2000;
@@ -168,14 +144,16 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       if (score > 0) scoredResults.add({'data': item, 'score': score});
     }
 
-    // Ταξινόμηση βάσει score
     scoredResults.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
     List<dynamic> finalResults = scoredResults.map((e) => e['data']).toList();
 
-    // --- HARD OVERRIDE ΓΙΑ ΝΙΚΟΛΑΟ 12-06 ---
     if (normalizedQuery.startsWith("ΝΙΚ") && stNicholasItem != null) {
-      finalResults.removeWhere((element) => element['date'] == stNicholasItem!['date']);
+      finalResults.removeWhere((e) => e['date'] == stNicholasItem['date']);
       finalResults.insert(0, stNicholasItem);
+    }
+    if (normalizedQuery.startsWith("ΜΑΡ") && mariaItem != null) {
+      finalResults.removeWhere((e) => e['date'] == mariaItem['date']);
+      finalResults.insert(0, mariaItem);
     }
 
     setState(() { 
@@ -184,36 +162,25 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     });
   }
 
-  // --- CALENDAR PICKER (YEAR-INDEPENDENT) ---
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2024),
-      lastDate: DateTime(2026, 12, 31),
+      lastDate: DateTime(2027, 12, 31),
       builder: (context, child) {
         return Theme(
           data: ThemeData.dark().copyWith(
             colorScheme: ColorScheme.dark(primary: primaryGold, onPrimary: Colors.black, surface: const Color(0xFF1A1A1A)),
           ),
-          child: Center(
-            child: SizedBox(
-              width: 320,
-              child: Transform.scale(scale: 0.9, child: child!),
-            ),
-          ),
+          child: Center(child: SizedBox(width: 320, child: Transform.scale(scale: 0.9, child: child!))),
         );
       },
     );
     if (picked != null) {
-      final String pickedMMDD = "${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+      final String pickedMMDD = DateFormat('MM-dd').format(picked);
       final result = allYearData.firstWhere(
-        (item) {
-          List<String> parts = item['date'].toString().split('-');
-          if (parts.length < 3) return false;
-          String itemMMDD = "${parts[1]}-${parts[2].padLeft(2, '0')}";
-          return itemMMDD == pickedMMDD;
-        }, 
+        (item) => item['date'].toString().contains(pickedMMDD), 
         orElse: () => null
       );
       if (result != null) {
@@ -228,14 +195,10 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     try {
       final String response = await rootBundle.loadString('assets/data/${months[now.month - 1]}.json');
       final List<dynamic> data = json.decode(response);
-      final String todayMMDD = "${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final String todayMMDD = DateFormat('MM-dd').format(now);
       setState(() {
         todayData = data.firstWhere(
-          (item) {
-            List<String> parts = item['date'].toString().split('-');
-            String itemMMDD = "${parts[1]}-${parts[2].padLeft(2, '0')}";
-            return itemMMDD == todayMMDD;
-          }, 
+          (item) => item['date'].toString().contains(todayMMDD), 
           orElse: () => data.isNotEmpty ? data.first : null
         );
         isLoading = false;
@@ -250,9 +213,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       try {
         final String resp = await rootBundle.loadString('assets/data/$month.json');
         tempYear.addAll(json.decode(resp));
-      } catch (e) {
-        debugPrint("DEBUG ERROR: Could not load $month.json");
-      }
+      } catch (e) {}
     }
     setState(() { allYearData = tempYear; });
     try {
@@ -359,9 +320,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
             
             Column(
               children: [
-                Container(
-                  width: 80, height: 2,
-                  margin: const EdgeInsets.only(top: 15, bottom: 5),
+                Container(width: 80, height: 2, margin: const EdgeInsets.only(top: 15, bottom: 5),
                   decoration: BoxDecoration(gradient: LinearGradient(colors: [Colors.transparent, const Color(0xFFC5A059).withOpacity(0.8), Colors.transparent])),
                 ),
                 TextButton(
