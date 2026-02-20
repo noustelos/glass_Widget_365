@@ -114,10 +114,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       String dateStr = item['date'].toString(); 
       int score = 0;
       
-      String monthDay = "";
-      if (dateStr.length >= 10) {
-        monthDay = dateStr.substring(5, 10);
-      }
+      String monthDay = dateStr.length >= 10 ? dateStr.substring(5, 10) : "";
 
       if (monthDay == "12-06") stNicholasItem = item;
       if (monthDay == "08-15") mariaItem = item;
@@ -148,11 +145,11 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     List<dynamic> finalResults = scoredResults.map((e) => e['data']).toList();
 
     if (normalizedQuery.startsWith("ΝΙΚ") && stNicholasItem != null) {
-      finalResults.removeWhere((e) => e['date'] == stNicholasItem['date']);
+      finalResults.removeWhere((e) => e['date'].toString().contains("12-06"));
       finalResults.insert(0, stNicholasItem);
     }
     if (normalizedQuery.startsWith("ΜΑΡ") && mariaItem != null) {
-      finalResults.removeWhere((e) => e['date'] == mariaItem['date']);
+      finalResults.removeWhere((e) => e['date'].toString().contains("08-15"));
       finalResults.insert(0, mariaItem);
     }
 
@@ -167,7 +164,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(2024),
-      lastDate: DateTime(2027, 12, 31),
+      lastDate: DateTime(2030, 12, 31),
       builder: (context, child) {
         return Theme(
           data: ThemeData.dark().copyWith(
@@ -239,30 +236,59 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    const double w = 330, h = 280;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Center(
-        child: Container(
-          color: Colors.transparent, 
-          width: w, height: 600,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              AnimatedPositioned(duration: const Duration(milliseconds: 500), top: 20, left: 0,
-                child: AnimatedOpacity(duration: const Duration(milliseconds: 500), opacity: isMacroDrawerOpen ? 0.0 : 1.0, child: IgnorePointer(ignoring: isMacroDrawerOpen, child: _buildMainCard(w, h)))),
-              Positioned(top: 20 + h + 10, left: 0,
-                child: AnimatedOpacity(duration: const Duration(milliseconds: 300), opacity: (isMicroDrawerOpen && !isMacroDrawerOpen) ? 1.0 : 0.0, child: IgnorePointer(ignoring: !isMicroDrawerOpen || isMacroDrawerOpen, child: _buildMicroDrawer(w)))),
-              _buildMacroDrawerIntegrated(w, 20),
-            ],
+    // Χρησιμοποιούμε LayoutBuilder για να διαβάζουμε το πλάτος του iframe live
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double w = constraints.maxWidth;
+        const double h = 280;
+
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Center(
+            child: Container(
+              color: Colors.transparent, 
+              width: w, 
+              height: 600,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 500), 
+                    top: 20, 
+                    left: 0,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 500), 
+                      opacity: isMacroDrawerOpen ? 0.0 : 1.0, 
+                      child: IgnorePointer(
+                        ignoring: isMacroDrawerOpen, 
+                        child: _buildMainCard(w, h)
+                      )
+                    )
+                  ),
+                  Positioned(
+                    top: 20 + h + 10, 
+                    left: 0,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 300), 
+                      opacity: (isMicroDrawerOpen && !isMacroDrawerOpen) ? 1.0 : 0.0, 
+                      child: IgnorePointer(
+                        ignoring: !isMicroDrawerOpen || isMacroDrawerOpen, 
+                        child: _buildMicroDrawer(w)
+                      )
+                    )
+                  ),
+                  _buildMacroDrawerIntegrated(w, 20),
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
   Widget _buildMainCard(double w, double h) {
-    if (isLoading) return CircularProgressIndicator(color: primaryGold);
+    if (isLoading) return Center(child: CircularProgressIndicator(color: primaryGold));
     return GlassWidget(width: w, height: h, child: Column(children: [
       Text(todayData?['display_date'] ?? "", style: TextStyle(color: primaryGold, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.4, shadows: laserEngravedShadows)),
       const SizedBox(height: 5),
