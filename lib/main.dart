@@ -10,6 +10,7 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 final FlutterLocalNotificationsPlugin notificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -45,6 +46,7 @@ class OrthodoxyHomePage extends StatefulWidget {
 
 class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   Map<String, dynamic>? todayData;
+  Map<String, dynamic>? tomorrowData;
   Map<String, dynamic>? selectedResult; 
   List<dynamic> searchResultsList = []; 
   bool isLoading = true;
@@ -52,6 +54,10 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   bool showModernSearch = false; 
   bool isMicroDrawerOpen = false;
   bool isMacroDrawerOpen = false;
+  
+  SharedPreferences? _prefs;
+  Set<String> _scheduledDates = {};
+
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   List<dynamic> allYearData = []; 
@@ -62,10 +68,18 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   @override
   void initState() {
     super.initState();
+    _initPrefs();
     _initializeNotifications();
     _calculateAstroData();
     loadDailyData();
     loadAllDataSources();
+  }
+
+  Future<void> _initPrefs() async {
+    _prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _scheduledDates = _prefs!.getKeys();
+    });
   }
 
   Future<void> _initializeNotifications() async {
@@ -125,32 +139,18 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
     };
 
     List<Map<String, dynamic>> scoredResults = [];
-    dynamic stNicholasItem, mariaItem;
-
     for (var item in allYearData) {
       String saintName = _normalizeGreek(item['saint'].toString());
-      String dateStr = item['date'].toString(); 
       int score = 0; bool hasMatch = false;
-      String monthDay = dateStr.length >= 10 ? dateStr.substring(5, 10) : "";
-      if (monthDay == "12-06") stNicholasItem = item;
-      if (monthDay == "08-15") mariaItem = item;
-
       nicknameMap.forEach((official, nicknames) {
-        bool isNicknameMatch = official.startsWith(normalizedQuery) || nicknames.any((nick) => nick.startsWith(normalizedQuery));
-        if (isNicknameMatch && saintName.contains(official)) {
+        if ((official.startsWith(normalizedQuery) || nicknames.any((nick) => nick.startsWith(normalizedQuery))) && saintName.contains(official)) {
           hasMatch = true; score += 10000;
-          if (official == "ΜΑΡΙΑ") {
-            if (monthDay == "08-15") score += 50000; 
-            if (monthDay == "11-21") score += 30000; 
-          }
         }
       });
-
       if (saintName.contains(normalizedQuery)) {
         hasMatch = true; score += 1000;
         if (saintName.startsWith(normalizedQuery)) score += 2000;
       }
-
       if (hasMatch) {
         int priority = item['priority'] ?? 0;
         score += priority * 2000;
@@ -158,24 +158,18 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       }
     }
     scoredResults.sort((a, b) => (b['score'] as int).compareTo(a['score'] as int));
-    List<dynamic> finalResults = scoredResults.map((e) => e['data']).toList();
-    if (normalizedQuery.startsWith("ΝΙΚ") && stNicholasItem != null) {
-      finalResults.removeWhere((e) => e['date'].toString().contains("12-06"));
-      finalResults.insert(0, stNicholasItem);
-    }
-    if (normalizedQuery.startsWith("ΜΑΡ") && mariaItem != null) {
-      finalResults.removeWhere((e) => e['date'].toString().contains("08-15"));
-      finalResults.insert(0, mariaItem);
-    }
-    setState(() { selectedResult = null; searchResultsList = finalResults; });
+    setState(() { selectedResult = null; searchResultsList = scoredResults.map((e) => e['data']).toList(); });
   }
 
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context, initialDate: DateTime.now(), firstDate: DateTime(2024), lastDate: DateTime(2030, 12, 31),
       builder: (context, child) => Theme(
-        data: ThemeData.dark().copyWith(colorScheme: ColorScheme.dark(primary: primaryGold, onPrimary: Colors.black, surface: const Color(0xFF1A1A1A))),
-        child: Center(child: SizedBox(width: 320, child: Transform.scale(scale: 0.9, child: child!))),
+        data: ThemeData.dark().copyWith(
+          colorScheme: ColorScheme.dark(primary: primaryGold, onPrimary: Colors.black, surface: const Color(0xFF1A1A1A)),
+          dialogTheme: DialogTheme(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+        ),
+        child: Center(child: SizedBox(width: 340, child: child!)),
       ),
     );
     if (picked != null) {
@@ -186,23 +180,40 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   }
 
   Future<void> _scheduleReminder(dynamic item) async {
-    final DateTime saintDate = DateTime.parse(item['date']);
-    final DateTime reminderTime = saintDate.subtract(const Duration(days: 1)).add(const Duration(hours: 9));
-    if (reminderTime.isBefore(DateTime.now())) return;
-    await notificationsPlugin.zonedSchedule(item.hashCode, "Υπενθύμιση", "Αύριο εορτάζει ο ${item['saint']}", tz.TZDateTime.from(reminderTime, tz.local),
-      const NotificationDetails(android: AndroidNotificationDetails('saint_channel', 'Reminders', importance: Importance.max, priority: Priority.high), iOS: DarwinNotificationDetails()),
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime, androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Η υπενθύμιση ορίστηκε!")));
+    if (item == null) return;
+    String dateKey = item['date'].toString();
+    if (_scheduledDates.contains(dateKey)) {
+      await _prefs?.remove(dateKey);
+      setState(() { _scheduledDates.remove(dateKey); });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Η υπενθύμιση ακυρώθηκε.")));
+    } else {
+      final DateTime saintDate = DateTime.parse(item['date']);
+      final DateTime reminderTime = saintDate.subtract(const Duration(days: 1)).add(const Duration(hours: 9));
+      if (reminderTime.isAfter(DateTime.now())) {
+        await notificationsPlugin.zonedSchedule(item.hashCode, "Υπενθύμιση", "Αύριο εορτάζει ο ${item['saint']}", tz.TZDateTime.from(reminderTime, tz.local),
+          const NotificationDetails(android: AndroidNotificationDetails('saint_channel', 'Reminders', importance: Importance.max, priority: Priority.high), iOS: DarwinNotificationDetails()),
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime, androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle);
+      }
+      await _prefs?.setBool(dateKey, true);
+      setState(() { _scheduledDates.add(dateKey); });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(backgroundColor: primaryGold, content: Text("Η υπενθύμιση αποθηκεύτηκε!", style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold))));
+    }
   }
 
   Future<void> loadDailyData() async {
     final now = DateTime.now();
+    final tomorrow = now.add(const Duration(days: 1));
     final months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
     try {
       final String response = await rootBundle.loadString('assets/data/${months[now.month - 1]}.json');
       final List<dynamic> data = json.decode(response);
       final String todayMMDD = DateFormat('MM-dd').format(now);
-      setState(() { todayData = data.firstWhere((item) => item['date'].toString().contains(todayMMDD), orElse: () => data.isNotEmpty ? data.first : null); isLoading = false; });
+      final String tomorrowMMDD = DateFormat('MM-dd').format(tomorrow);
+      setState(() { 
+        todayData = data.firstWhere((item) => item['date'].toString().contains(todayMMDD), orElse: () => data.isNotEmpty ? data.first : null);
+        tomorrowData = data.firstWhere((item) => item['date'].toString().contains(tomorrowMMDD), orElse: () => null);
+        isLoading = false; 
+      });
     } catch (e) { setState(() => isLoading = false); }
   }
 
@@ -224,115 +235,176 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    // 🛠 RESPONSIVE CALCULATIONS
     final double screenWidth = MediaQuery.of(context).size.width;
-    final double screenHeight = MediaQuery.of(context).size.height;
-    
-    // Πλάτος: 92% του κινητού, αλλά max 360px για να μην "απλώνει" υπερβολικά σε tablets
-    final double w = screenWidth > 400 ? 360 : screenWidth * 0.92;
-    // Ύψος Macro Drawer: 80% - 90% της οθόνης
-    final double macroHeight = screenHeight < 700 ? screenHeight * 0.9 : screenHeight * 0.82;
-    const double mainCardH = 280; // Σταθερό ύψος για την κεντρική κάρτα
+
+    // 1️⃣ ADAPTIVE RADIUS (0.085 for mature Apple feel)
+    const double minWidgetWidth = 300;
+    const double maxWidgetWidth = 380;
+    final double w = screenWidth.clamp(minWidgetWidth, maxWidgetWidth).toDouble();
+    final double dynamicRadius = w * 0.085;
+
+    // PROPORTIONAL REFACTOR
+    final double mainCardH = w * 0.75;
+    final double macroHeight = w * 1.6;
+    final double widgetTopPos = w * 0.05; 
+    final double containerHeight = macroHeight + (w * 0.35);
+
+    final bool isLargeScreen = screenWidth > 600;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Center(
-        child: SizedBox(
-          width: w, 
-          height: screenHeight, // Καταλαμβάνει όλο το διαθέσιμο ύψος για τα animations
-          child: Stack(
-            alignment: Alignment.topCenter,
-            clipBehavior: Clip.none,
-            children: [
-              // MAIN CARD
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 500), 
-                top: screenHeight * 0.05, // 5% από την κορυφή
-                left: 0, right: 0,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 500), 
-                  opacity: isMacroDrawerOpen ? 0.0 : 1.0, 
-                  child: IgnorePointer(ignoring: isMacroDrawerOpen, child: _buildMainCard(w, mainCardH))
-                )
+        child: Transform.scale(
+          scale: isLargeScreen ? 0.92 : 1,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SizedBox(
+              width: w, 
+              height: containerHeight, 
+              child: Stack(
+                alignment: Alignment.topCenter,
+                clipBehavior: Clip.none,
+                children: [
+                  // MAIN CARD
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 500), 
+                    top: widgetTopPos, 
+                    left: 0, right: 0,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 500), 
+                      opacity: isMacroDrawerOpen ? 0.0 : 1.0, 
+                      child: IgnorePointer(
+                        ignoring: isMacroDrawerOpen, 
+                        child: _buildMainCard(w, mainCardH, dynamicRadius)
+                      )
+                    )
+                  ),
+                  // MICRO DRAWER
+                  Positioned(
+                    top: widgetTopPos + mainCardH + (w * 0.04), 
+                    left: 0, right: 0,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 300), 
+                      opacity: (isMicroDrawerOpen && !isMacroDrawerOpen) ? 1.0 : 0.0, 
+                      child: IgnorePointer(
+                        ignoring: !isMicroDrawerOpen || isMacroDrawerOpen, 
+                        child: _buildMicroDrawer(w, dynamicRadius * 0.8)
+                      )
+                    )
+                  ),
+                  // MACRO DRAWER
+                  _buildMacroDrawerIntegrated(w, macroHeight, widgetTopPos, dynamicRadius * 1.15),
+                ],
               ),
-              // MICRO DRAWER
-              Positioned(
-                top: (screenHeight * 0.05) + mainCardH + 12, 
-                left: 0, right: 0,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 300), 
-                  opacity: (isMicroDrawerOpen && !isMacroDrawerOpen) ? 1.0 : 0.0, 
-                  child: IgnorePointer(ignoring: !isMicroDrawerOpen || isMacroDrawerOpen, child: _buildMicroDrawer(w))
-                )
-              ),
-              // MACRO DRAWER (RESPONSIVE)
-              _buildMacroDrawerIntegrated(w, macroHeight, screenHeight * 0.05),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildMainCard(double w, double h) {
+  Widget _buildMainCard(double w, double h, double radius) {
     if (isLoading) return Center(child: CircularProgressIndicator(color: primaryGold));
-    return GlassWidget(width: w, height: h, child: Column(children: [
-      Text(todayData?['display_date'] ?? "", style: TextStyle(color: primaryGold, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.4, shadows: laserEngravedShadows)),
-      const SizedBox(height: 5),
-      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Flexible(child: Text(todayData?['saint'] ?? "", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold, shadows: laserEngravedShadows))),
-        IconButton(icon: const Icon(Icons.info_outline, color: Colors.white38, size: 16), onPressed: () => _launchURL(todayData?['wiki_url'])),
-      ]),
-      Divider(color: primaryGold.withOpacity(0.3), thickness: 0.5, indent: 60, endIndent: 60),
-      const Spacer(),
-      Text(showModernMain ? (todayData?['translation'] ?? "") : (todayData?['quote'] ?? ""), textAlign: TextAlign.center, maxLines: 5, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 19, fontStyle: FontStyle.italic, color: lightGold, height: 1.2, shadows: laserEngravedShadows)),
-      const Spacer(),
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        const SizedBox(width: 40),
-        Text(todayData?['reference'] ?? "", style: const TextStyle(color: Colors.white38, fontSize: 11)),
-        IconButton(icon: Icon(isMicroDrawerOpen ? Icons.keyboard_arrow_up : Icons.menu, color: Colors.white70, size: 20), onPressed: () => setState(() => isMicroDrawerOpen = !isMicroDrawerOpen)),
-      ]),
-    ]));
+    bool isMajorHoliday = tomorrowData != null && tomorrowData!['priority'] == 1;
+    bool isUserReminder = tomorrowData != null && _scheduledDates.contains(tomorrowData!['date'].toString());
+
+    return GlassWidget(
+      width: w, height: h, radius: radius, 
+      child: Column(children: [
+        if (tomorrowData != null && (isMajorHoliday || isUserReminder))
+          Container(
+            margin: const EdgeInsets.symmetric(vertical: 6),
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
+            decoration: BoxDecoration(
+              color: isUserReminder ? Colors.redAccent.withOpacity(0.15) : primaryGold.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: isUserReminder ? Colors.redAccent.withOpacity(0.3) : primaryGold.withOpacity(0.3), width: 0.5),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(isUserReminder ? Icons.alarm_on : Icons.notification_important_rounded, color: isUserReminder ? Colors.redAccent : primaryGold, size: 14),
+              const SizedBox(width: 6),
+              Text("Αύριο: ${tomorrowData!['saint']}", style: TextStyle(color: isUserReminder ? Colors.white70 : lightGold, fontSize: 11, fontWeight: FontWeight.bold)),
+            ]),
+          ),
+        Text(todayData?['display_date'] ?? "", style: TextStyle(color: primaryGold, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.4, shadows: laserEngravedShadows)),
+        const SizedBox(height: 5),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          // 5️⃣ OPTICAL TYPOGRAPHY SCALING (Saint name)
+          Flexible(child: Text(todayData?['saint'] ?? "", textAlign: TextAlign.center, style: TextStyle(fontSize: w * 0.055, color: Colors.white, fontWeight: FontWeight.bold, shadows: laserEngravedShadows))),
+          IconButton(icon: const Icon(Icons.info_outline, color: Colors.white38, size: 16), onPressed: () => _launchURL(todayData?['wiki_url'])),
+        ]),
+        Divider(color: primaryGold.withOpacity(0.3), thickness: 0.5, indent: 60, endIndent: 60),
+        const Spacer(),
+        // 5️⃣ OPTICAL TYPOGRAPHY SCALING (Quote)
+        Text(showModernMain ? (todayData?['translation'] ?? "") : (todayData?['quote'] ?? ""), textAlign: TextAlign.center, maxLines: 4, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: w * 0.05, fontStyle: FontStyle.italic, color: lightGold, height: 1.2, shadows: laserEngravedShadows)),
+        const Spacer(),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const SizedBox(width: 40),
+          Text(todayData?['reference'] ?? "", style: const TextStyle(color: Colors.white38, fontSize: 11)),
+          // 7️⃣ ANIMATED ICON POLISH
+          IconButton(
+            onPressed: () => setState(() => isMicroDrawerOpen = !isMicroDrawerOpen),
+            icon: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+              child: Icon(
+                isMicroDrawerOpen ? Icons.keyboard_arrow_up : Icons.menu,
+                key: ValueKey(isMicroDrawerOpen),
+                color: Colors.white70,
+                size: 20,
+              ),
+            ),
+          ),
+        ]),
+      ])
+    );
   }
 
-  Widget _buildMicroDrawer(double w) {
-    return GlassWidget(height: 65, width: w, radius: 20, isLight: true, child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-      _buildCustomSwitch(showModernMain, (v) => setState(() => showModernMain = v)),
-      IconButton(icon: const Icon(Icons.share, color: Colors.white70, size: 20), onPressed: () => Share.share("${todayData?['quote']}\n${todayData?['reference']}")),
-      IconButton(icon: const Icon(Icons.copy, color: Colors.white70, size: 20), onPressed: () => Clipboard.setData(ClipboardData(text: "${todayData?['quote']}\n${todayData?['reference']}"))),
-      IconButton(icon: const Icon(Icons.grid_view_rounded, color: Colors.white, size: 22), onPressed: () => setState(() { isMicroDrawerOpen = false; isMacroDrawerOpen = true; })),
-    ]));
+  Widget _buildMicroDrawer(double w, double radius) {
+    // 4️⃣ PROPORTIONAL MICRO DRAWER HEIGHT
+    return GlassWidget(
+      height: w * 0.18, width: w, radius: radius, isLight: true, 
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+        _buildCustomSwitch(showModernMain, (v) => setState(() => showModernMain = v)),
+        IconButton(icon: const Icon(Icons.share, color: Colors.white70, size: 20), onPressed: () => Share.share("${todayData?['quote']}\n${todayData?['reference']}")),
+        IconButton(icon: const Icon(Icons.copy, color: Colors.white70, size: 20), onPressed: () => Clipboard.setData(ClipboardData(text: "${todayData?['quote']}\n${todayData?['reference']}"))),
+        IconButton(icon: const Icon(Icons.grid_view_rounded, color: Colors.white, size: 22), onPressed: () => setState(() { isMicroDrawerOpen = false; isMacroDrawerOpen = true; })),
+      ])
+    );
   }
 
-  Widget _buildMacroDrawerIntegrated(double w, double h, double topPos) {
+  Widget _buildMacroDrawerIntegrated(double w, double h, double topPos, double radius) {
     return Stack(children: [
       if (isMacroDrawerOpen) 
-        Positioned.fill(child: GestureDetector(onTap: () => setState(() => isMacroDrawerOpen = false), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12), child: Container(color: Colors.transparent)))),
+        Positioned.fill(child: GestureDetector(onTap: () => setState(() => isMacroDrawerOpen = false), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: w * 0.04, sigmaY: w * 0.04), child: Container(color: Colors.transparent)))),
       AnimatedPositioned(duration: const Duration(milliseconds: 600), curve: Curves.easeOutQuart, top: topPos, left: 0, right: 0,
         child: IgnorePointer(ignoring: !isMacroDrawerOpen, child: AnimatedOpacity(duration: const Duration(milliseconds: 400), opacity: isMacroDrawerOpen ? 1.0 : 0.0,
-          child: GlassWidget(width: w, height: h, radius: 32, child: Column(children: [
-            Text(formattedDate, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-            const SizedBox(height: 5),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Icon(Icons.wb_sunny_outlined, color: primaryGold, size: 14), const SizedBox(width: 4),
-              Text(sunrise, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-              const SizedBox(width: 15), Text(moonIcon, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 15), Text(sunset, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-            ]),
-            const SizedBox(height: 8),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              IconButton(icon: const Icon(Icons.calendar_month, color: Colors.white, size: 22), onPressed: () => _selectDate(context)),
-              IconButton(icon: const Icon(Icons.close, color: Colors.white70, size: 18), onPressed: () => setState(() => isMacroDrawerOpen = false)),
-              TextButton.icon(onPressed: _getNewRandomQuote, icon: Icon(Icons.auto_awesome, color: primaryGold, size: 18), label: const Text("Νέο", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold))),
-            ]),
-            Container(margin: const EdgeInsets.symmetric(vertical: 8), height: 42, decoration: BoxDecoration(borderRadius: BorderRadius.circular(15), border: Border.all(color: primaryGold.withOpacity(0.8), width: 1.5)),
-              child: TextField(controller: _searchController, style: const TextStyle(color: Colors.white, fontSize: 14), onChanged: _advancedSearch,
-                decoration: InputDecoration(hintText: "Αναζήτηση...", hintStyle: const TextStyle(color: Colors.white38), prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 18), filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
-            const Divider(color: Colors.white24, height: 1),
-            Expanded(child: (selectedResult == null && searchResultsList.isEmpty) ? const Center(child: Text("Αναζητήστε όνομα...", style: TextStyle(color: Colors.white24, fontSize: 13))) : (selectedResult != null) ? _buildSelectionView() : _buildSearchResultsList()),
-            const SizedBox(height: 8),
-            TextButton(onPressed: () => _launchURL("https://365orthodoxy.com"), child: Text("365orthodoxy.com", style: TextStyle(color: const Color(0xFFC5A059).withOpacity(0.7), fontSize: 11, letterSpacing: 1.1))),
-          ]))))),
+          child: GlassWidget(
+            width: w, height: h, radius: radius, 
+            child: Column(children: [
+              Text(formattedDate, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              const SizedBox(height: 5),
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(Icons.wb_sunny_outlined, color: primaryGold, size: 14), const SizedBox(width: 4),
+                Text(sunrise, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                const SizedBox(width: 15), Text(moonIcon, style: const TextStyle(fontSize: 16)),
+                const SizedBox(width: 15), Text(sunset, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+              ]),
+              const SizedBox(height: 8),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                IconButton(icon: const Icon(Icons.calendar_month, color: Colors.white, size: 22), onPressed: () => _selectDate(context)),
+                IconButton(icon: const Icon(Icons.close, color: Colors.white70, size: 18), onPressed: () => setState(() => isMacroDrawerOpen = false)),
+                TextButton.icon(onPressed: _getNewRandomQuote, icon: Icon(Icons.auto_awesome, color: primaryGold, size: 18), label: const Text("Νέο", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold))),
+              ]),
+              Container(margin: const EdgeInsets.symmetric(vertical: 8), height: 42, decoration: BoxDecoration(borderRadius: BorderRadius.circular(15), border: Border.all(color: primaryGold.withOpacity(0.8), width: 1.5)),
+                child: TextField(controller: _searchController, style: const TextStyle(color: Colors.white, fontSize: 14), onChanged: _advancedSearch,
+                  decoration: InputDecoration(hintText: "Αναζήτηση...", hintStyle: const TextStyle(color: Colors.white38), prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 18), filled: true, fillColor: Colors.white.withOpacity(0.05), border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)))),
+              const Divider(color: Colors.white24, height: 1),
+              Expanded(child: (selectedResult == null && searchResultsList.isEmpty) ? const Center(child: Text("Αναζητήστε όνομα...", style: TextStyle(color: Colors.white24, fontSize: 13))) : (selectedResult != null) ? _buildSelectionView() : _buildSearchResultsList()),
+              const SizedBox(height: 8),
+              TextButton(onPressed: () => _launchURL("https://365orthodoxy.com"), child: Text("365orthodoxy.com", style: TextStyle(color: const Color(0xFFC5A059).withOpacity(0.7), fontSize: 11, letterSpacing: 1.1))),
+            ])
+          )))),
     ]);
   }
 
@@ -341,11 +413,12 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       separatorBuilder: (context, index) => const Divider(color: Colors.white12, height: 1),
       itemBuilder: (context, index) {
         final item = searchResultsList[index];
+        bool isScheduled = _scheduledDates.contains(item['date'].toString());
         return ListTile(dense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 8), title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             SelectableText(item['display_date'], style: TextStyle(color: primaryGold.withOpacity(0.8), fontSize: 10, fontWeight: FontWeight.bold)),
             const Spacer(),
-            IconButton(icon: const Icon(Icons.notifications_active_outlined, color: Colors.white38, size: 18), onPressed: () => _scheduleReminder(item)),
+            IconButton(icon: Icon(isScheduled ? Icons.notifications_active : Icons.notifications_active_outlined, color: isScheduled ? primaryGold : Colors.white38, size: 18), onPressed: () => _scheduleReminder(item)),
           ]),
           Text(item['saint'], style: const TextStyle(color: Colors.white, fontSize: 15)),
         ]), onTap: () => setState(() { selectedResult = Map.from(item); }));
@@ -353,6 +426,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
   }
 
   Widget _buildSelectionView() {
+    bool isScheduled = selectedResult != null && _scheduledDates.contains(selectedResult!['date'].toString());
     return SingleChildScrollView(padding: const EdgeInsets.only(top: 10), child: Column(children: [
       SelectableText(selectedResult!['display_date'] ?? "", textAlign: TextAlign.center, style: TextStyle(color: primaryGold, fontSize: 11, fontWeight: FontWeight.bold)),
       Text(selectedResult!['saint'] ?? "", textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
@@ -360,6 +434,7 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       if (selectedResult!['reference'] != null) Text(selectedResult!['reference'], style: const TextStyle(color: Colors.white38, fontSize: 11), textAlign: TextAlign.center),
       const SizedBox(height: 12),
       Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        IconButton(icon: Icon(isScheduled ? Icons.notifications_active : Icons.notifications_active_outlined, color: isScheduled ? primaryGold : Colors.white70, size: 18), onPressed: () => _scheduleReminder(selectedResult)),
         IconButton(icon: const Icon(Icons.copy, color: Colors.white70, size: 18), onPressed: () => Clipboard.setData(ClipboardData(text: "${selectedResult!['quote']}\n${selectedResult!['reference'] ?? ''}"))),
         IconButton(icon: const Icon(Icons.share, color: Colors.white70, size: 18), onPressed: () => Share.share("${selectedResult!['quote']}\n${selectedResult!['reference'] ?? ''}")),
       ]),
@@ -383,12 +458,75 @@ class GlassWidget extends StatelessWidget {
   const GlassWidget({super.key, required this.child, required this.width, required this.height, this.radius = 28, this.isLight = false});
   @override
   Widget build(BuildContext context) {
-    return Container(width: width, height: height, decoration: BoxDecoration(borderRadius: BorderRadius.circular(radius), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 25, spreadRadius: -5, offset: const Offset(0, 10))]),
-      child: ClipRRect(borderRadius: BorderRadius.circular(radius), child: Stack(children: [
-        BackdropFilter(filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25), child: Container(decoration: BoxDecoration(color: Colors.white.withOpacity(isLight ? 0.12 : 0.06), borderRadius: BorderRadius.circular(radius)))),
-        Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(radius), border: Border.all(color: Colors.white.withOpacity(isLight ? 0.25 : 0.15), width: 1.2), gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Colors.white.withOpacity(0.1), Colors.transparent, Colors.black.withOpacity(0.05)]))),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12), child: child),
-      ])));
+    final double horizontalPadding = width * 0.06;
+    final double verticalPadding = width * 0.045;
+    final double blurSigma = width * 0.07;
+
+    return Container(
+      width: width, height: height, 
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius), 
+        // 3️⃣ REFINED SHADOW PHYSICS (Grounded depth)
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isLight ? 0.18 : 0.28),
+            blurRadius: width * 0.10,
+            spreadRadius: -width * 0.02,
+            offset: Offset(0, width * 0.06),
+          )
+        ]
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius), 
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+          child: Container(
+            color: Colors.white.withOpacity(isLight ? 0.14 : 0.045),
+            child: Stack(
+              children: [
+                if (!isLight)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(radius),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft, end: Alignment.bottomRight,
+                            stops: const [0.0, 0.3, 0.7, 1.0],
+                            colors: [Colors.white.withOpacity(0.18), Colors.transparent, Colors.transparent, Colors.black.withOpacity(0.08)],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(radius),
+                        // 2️⃣ PROPORTIONAL BORDER THICKNESS
+                        border: Border.all(color: Colors.white.withOpacity(isLight ? 0.25 : 0.15), width: width * 0.0035),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                          stops: const [0.0, 0.15, 0.6, 1.0],
+                          colors: [Colors.white.withOpacity(isLight ? 0.35 : 0.25), Colors.white.withOpacity(isLight ? 0.12 : 0.08), Colors.transparent, Colors.black.withOpacity(0.06)],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
+                  child: child,
+                ),
+              ],
+            ),
+          ),
+        )
+      )
+    );
   }
 }
 
