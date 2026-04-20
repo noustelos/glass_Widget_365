@@ -137,6 +137,9 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       "ΜΑΡΙΑ": ["ΜΑΙΡΗ", "ΜΑΡΙΩ", "ΜΑΡΙΤΣΑ", "ΜΑΡΟΥΛΑ", "ΠΑΝΑΓΙΑ", "ΔΕΣΠΟΙΝΑ"],
       "ΕΛΕΝΗ": ["ΛΕΝΑ", "ΈΛΕΝΑ", "ΛΕΝΙΩ"], 
     };
+    final Map<String, List<String>> saintKeywords = {
+      "ΜΑΡΙΑ": ["ΘΕΟΤΟΚ"],
+    };
 
     List<Map<String, dynamic>> scoredResults = [];
     for (var item in allYearData) {
@@ -144,6 +147,11 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
       int score = 0; bool hasMatch = false;
       nicknameMap.forEach((official, nicknames) {
         if ((official.startsWith(normalizedQuery) || nicknames.any((nick) => nick.startsWith(normalizedQuery))) && saintName.contains(official)) {
+          hasMatch = true; score += 10000;
+        }
+      });
+      saintKeywords.forEach((name, keywords) {
+        if ((name.startsWith(normalizedQuery) || nicknameMap[name]?.any((nick) => nick.startsWith(normalizedQuery)) == true) && keywords.any((kw) => saintName.contains(kw))) {
           hasMatch = true; score += 10000;
         }
       });
