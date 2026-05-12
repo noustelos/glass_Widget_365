@@ -10,19 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
 
       - name: Install dependencies
-        run: dart pub get
+        run: flutter pub get
 
       - name: Build Web
-        # Εδώ χτίζουμε το project. 
-        # Αν είναι Flutter: flutter build web
-        # Αν είναι Dart Web: webdev build ή dart compile js
-        run: dart compile js bin/main.dart -o build/main.js
+        run: flutter build web --release --target lib/main.dart
 
       - name: Publish to Cloudflare Pages
         uses: cloudflare/pages-action@v1
@@ -30,4 +30,4 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: bible-quotes-widget 
-          directory: build
+          directory: build/web
