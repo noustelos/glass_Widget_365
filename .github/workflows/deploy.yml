@@ -1,4 +1,4 @@
-name: Deploy Bible Quotes Widget
+name: Deploy Flutter Bible Quotes Widget
 
 on:
   push:
@@ -16,18 +16,19 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
+          architecture: x64
           cache: true
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build Web
-        run: flutter build web --release --target lib/main.dart
+        run: flutter build web --release
 
       - name: Publish to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: bible-quotes-widget 
+          projectName: bible-quotes-widget
           directory: build/web
