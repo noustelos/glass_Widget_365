@@ -32,6 +32,10 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 #/build/
+# build/web stays tracked (legacy deploy); ignore local test/build caches only
+/build/native_assets/
+/build/test_cache/
+/build/unit_test_assets/
 .fvm/
 project.zip
 
