@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:ui';
 import 'dart:convert';
 import 'package:flutter/services.dart';
@@ -261,7 +262,17 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
-      body: Center(
+      body: Stack(children: [
+        // On web the page stays transparent (embedded on 365orthodoxy.com);
+        // standalone mobile needs a backdrop for the glass blur to act on.
+        if (!kIsWeb) const Positioned.fill(child: MobileBackground()),
+        _buildWidgetStack(screenWidth, w, dynamicRadius, mainCardH, macroHeight, widgetTopPos, containerHeight, isLargeScreen),
+      ]),
+    );
+  }
+
+  Widget _buildWidgetStack(double screenWidth, double w, double dynamicRadius, double mainCardH, double macroHeight, double widgetTopPos, double containerHeight, bool isLargeScreen) {
+    return Center(
         child: Transform.scale(
           scale: isLargeScreen ? 0.92 : 1,
           child: ConstrainedBox(
@@ -307,7 +318,6 @@ class _OrthodoxyHomePageState extends State<OrthodoxyHomePage> {
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -535,6 +545,46 @@ class GlassWidget extends StatelessWidget {
         )
       )
     );
+  }
+}
+
+// Backdrop for standalone mobile builds: the glass cards blur whatever sits
+// behind them, which on web is the host page — here it's this gradient + orbs.
+class MobileBackground extends StatelessWidget {
+  const MobileBackground({super.key});
+
+  Widget _orb(Alignment alignment, Color color, double size) {
+    return Align(
+      alignment: alignment,
+      child: Container(
+        width: size, height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(colors: [color, color.withOpacity(0.0)]),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final double s = constraints.biggest.shortestSide;
+      return DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [Color(0xFF141A28), Color(0xFF0E1220), Color(0xFF070910)],
+          ),
+        ),
+        child: Stack(children: [
+          _orb(const Alignment(-1.2, -0.9), const Color(0xFFD4AF37).withOpacity(0.26), s * 1.1),
+          _orb(const Alignment(1.3, -0.2), const Color(0xFF2E4A8F).withOpacity(0.30), s * 1.2),
+          _orb(const Alignment(-0.8, 1.2), const Color(0xFF5A3E1B).withOpacity(0.32), s * 1.0),
+          _orb(const Alignment(0.9, 1.1), const Color(0xFFF7E29F).withOpacity(0.12), s * 0.8),
+        ]),
+      );
+    });
   }
 }
 
